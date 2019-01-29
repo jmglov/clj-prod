@@ -48,7 +48,3 @@ Once you've created the profile, you can call the `(refresh-aws-credentials)` fu
 ## Creating and using a DynamoDB table
 ## Creating and using an SQS queue
 ## Hooking it all together with AWS Lambda
-
-## License
-
-See [README](README.md)
