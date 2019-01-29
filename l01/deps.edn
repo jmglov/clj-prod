@@ -1,0 +1,4 @@
+{:paths ["src" "dev"]
+ :deps {org.clojure/clojure {:mvn/version "1.10.0"}
+        amazonica {:mvn/version "0.3.139"}
+        cheshire {:mvn/version "5.8.1"}}}
