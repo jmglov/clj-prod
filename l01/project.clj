@@ -4,4 +4,5 @@
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [amazonica "0.3.139"]
-                 [cheshire "5.8.1"]])
+                 [cheshire "5.8.1"]]
+  :profiles {:dev {:source-paths ["dev"]}})
