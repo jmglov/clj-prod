@@ -122,7 +122,7 @@ The last thing Dynamo needs to know in order to create a table is how many reads
 
 And how did we know this? By looking at its getters, naturally.
 
-We're about ready to create a table now, but first we need to figure out what we're planning to keep in it. How about we build a reporting service, where we'll get a stream of incoming events and aggregate them based on a set of report definitions. We'll store those aggregated datapoints in a table called `clj-prod-YOURNAME-datapoints`, which will look like this:
+We're about ready to create a table now, but first we need to figure out what we're planning to keep in it. How about we build a reporting service, where we'll get a stream of incoming events and aggregate them based on a set of report definitions. We'll store those aggregated datapoints in a table called `clj-prod-YOURNAME-aggregates`, which will look like this:
 
 | datapoint                    | events |
 | ---------------------------- | ------ |
@@ -134,7 +134,7 @@ So we have a simple partition key called `datapoint`, which is a string, and ano
 After all of our detective and design work, we can now assemble a Clojure map to represent a [CreateTableRequest](https://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/dynamodbv2/model/CreateTableRequest.html) POJO:
 
 ```clj
-{:table-name "clj-prod-YOURNAME-datapoints"
+{:table-name "clj-prod-YOURNAME-aggregates"
  :key-schema [{:attribute-name "datapoint"
                :key-type "HASH"}]
  :attribute-definitions [{:attribute-name "datapoint"
@@ -148,7 +148,7 @@ Note that _hash key_ is the old name for _partition key_, and thus lives on as t
 Now that we have our map, we need to feed it to `create-table`. However, we don't need the hard `{}` shell around the map, we can just hand the inner goodies to Amazonica:
 
 ```clj
-(dynamo/create-table :table-name "clj-prod-YOURNAME-datapoints"
+(dynamo/create-table :table-name "clj-prod-YOURNAME-aggregates"
                      :key-schema [{:attribute-name "datapoint"
                                    :key-type "HASH"}]
                      :attribute-definitions [{:attribute-name "datapoint"
@@ -161,14 +161,14 @@ If we list our tables again, we should now see the one we just created:
 
 ```clj
 (dynamo/list-tables)
-;;=> {:table-names ["clj-prod-YOURNAME-datapoints"]}
+;;=> {:table-names ["clj-prod-YOURNAME-aggregates"]}
 ```
 
 We can see if the table is finished creating by calling `describe-table` on it:
 
 ```clj
-(dynamo/describe-table "clj-prod-YOURNAME-datapoints")
-;;=> {:table {:table-name "clj-prod-YOURNAME-datapoints", :table-status "ACTIVE", }}
+(dynamo/describe-table "clj-prod-YOURNAME-aggregates")
+;;=> {:table {:table-name "clj-prod-YOURNAME-aggregates", :table-status "ACTIVE", }}
 ```
 
 Yay! It's done creating (status `ACTIVE`), so let's go ahead and
@@ -185,10 +185,10 @@ This part is a snap with Clojure, as maps just slide right into Dynamo. Let's ad
 We can use the `put-item` function to make this happen in a jiffy!
 
 ```clj
-(dynamo/put-item :table-name "clj-prod-YOURNAME-datapoints"
+(dynamo/put-item :table-name "clj-prod-YOURNAME-aggregates"
                  :item {:datapoint "2011-12-03:10,10-50,SLICE_IT"
                         :items 27})
-(dynamo/put-item :table-name "clj-prod-YOURNAME-datapoints"
+(dynamo/put-item :table-name "clj-prod-YOURNAME-aggregates"
                  :item {:datapoint "merchant1,SLICE_IT"
                         :items 42})
 ```
@@ -196,7 +196,7 @@ We can use the `put-item` function to make this happen in a jiffy!
 That was easy! Maybe a bit too easy... how can we be sure that those items made it into Dynamo? Well, we can use the `scan` function to list all items in the table:
 
 ```clj
-(dynamo/scan :table-name "clj-prod-YOURNAME-datapoints")
+(dynamo/scan :table-name "clj-prod-YOURNAME-aggregates")
 ;;=>
 #_{:items
    [{:datapoint "merchant1,SLICE_IT", :items 42}
@@ -214,8 +214,61 @@ Also note that `scan` may not return all items in the table; if there are many i
 In our reporting system, we'll assume that we'll be looking up aggregates by datapoint. That will use `get-item`:
 
 ```clj
-(dynamo/get-item :table-name "clj-prod-jmglov-datapoints"
+(dynamo/get-item :table-name "clj-prod-YOURNAME-aggregates"
                  :key {:datapoint {:s "2011-12-03:10,10-50,SLICE_IT"}})
+```
+
+### The db namespace
+
+We've done a lot of exploring in the REPL, and now seems like a good time to persist some of those experiments as source code.
+
+Create a `src/db.clj` file, and require in Amazonica's DynamoDB namespace:
+
+```clj
+(ns db
+  (:require [amazonica.aws.dynamodbv2 :as dynamo]))
+```
+
+As the table name shouldn't be changing very often, we can define it in this namespace:
+
+```clj
+(def table-name "clj-prod-YOURNAME-aggregates")
+```
+
+Let's start with a `put` function. We can copy the `dynamo/put-item` expression from our REPL right into the body of the function, then fix up the table name and argument:
+
+```clj
+(defn put [aggregate]
+  (dynamo/put-item :table-name table-name
+                   :item aggregate))
+```
+
+If we evaluate the file and enter the namespace in our REPL, we can try it:
+
+```clj
+(put {:datapoint "merchant1,SLICE_IT", :items 42})
+```
+
+Next, let's make our `dynamo/get-item` REPL experiment into a function. First, we should modify our namespace to exclude `clojure.core/get` so that we don't get a warning about shadowing it:
+
+```clj
+(ns db
+  (:require [amazonica.aws.dynamodbv2 :as dynamo])
+  (:refer-clojure :exclude [get]))
+```
+
+Now, we can write a `get` function:
+
+```clj
+(defn get [datapoint]
+  (dynamo/get-item :table-name table-name
+                   :key {:datapoint {:s datapoint}}))
+```
+
+And test it in the REPL (don't forget to evaluate the file first):
+
+```clj
+(get "merchant1,SLICE_IT")
 ```
 
 Now we have a table, and a few pieces of test data in it. Let's move on to figuring out how to get lots of data into it!
