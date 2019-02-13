@@ -65,7 +65,7 @@ For consuming events from the queue and aggregating them, we choose AWS Lambda, 
 
 ### Storing aggregates
 
-Given the fact that the reporting UI will request datapoints, we decide that a key/value store is a perfect fit. Luckily, AWS has one of those: [DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Introduction.html), which is a managed NoSQL database.
+Given the fact that the reporting UI will request aggregates, we decide that a key/value store is a perfect fit. Luckily, AWS has one of those: [DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Introduction.html), which is a managed NoSQL database.
 
 ### Serving aggregates
 
