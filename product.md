@@ -57,7 +57,7 @@ We can start out with an ideal design, then adapt it to real-world constraints.
 
 ### Accepting events
 
-We decide that the reporting system should publish events to a queue, from which we will consume. Being AWS aficionados, we know that the simplest queue of them all is SQS, the Simple Queue Service. It's fully managed, so all we have to do is create it and use it.
+We decide that the checkout system should publish events to a queue, from which we will consume. Being AWS aficionados, we know that the simplest queue of them all is SQS, the Simple Queue Service. It's fully managed, so all we have to do is create it and use it.
 
 ### Aggregating events
 
