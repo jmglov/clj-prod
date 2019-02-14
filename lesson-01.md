@@ -235,10 +235,10 @@ As the table name shouldn't be changing very often, we can define it in this nam
 (def table-name "clj-prod-YOURNAME-aggregates")
 ```
 
-Let's start with a `put` function. We can copy the `dynamo/put-item` expression from our REPL right into the body of the function, then fix up the table name and argument:
+Let's start with a `put!` function. We can copy the `dynamo/put-item` expression from our REPL right into the body of the function, then fix up the table name and argument:
 
 ```clj
-(defn put [aggregate]
+(defn put! [aggregate]
   (dynamo/put-item :table-name table-name
                    :item aggregate))
 ```
@@ -246,7 +246,7 @@ Let's start with a `put` function. We can copy the `dynamo/put-item` expression 
 If we evaluate the file and enter the namespace in our REPL, we can try it:
 
 ```clj
-(put {:datapoint "merchant1,SLICE_IT", :items 42})
+(put! {:datapoint "merchant1,SLICE_IT", :items 42})
 ```
 
 Next, let's make our `dynamo/get-item` REPL experiment into a function. First, we should modify our namespace to exclude `clojure.core/get` so that we don't get a warning about shadowing it:
@@ -271,4 +271,217 @@ And test it in the REPL (don't forget to evaluate the file first):
 (get "merchant1,SLICE_IT")
 ```
 
-Now we have a table, and a few pieces of test data in it. Let's move on to figuring out how to get lots of data into it!
+## Spec to the rescue
+
+One complaint about maintaining a large Clojure codebase is that, absent types, it can be challenging to remember what the data various functions take and return should look like.
+
+Starting in Clojure 1.9, the [spec library](https://clojure.org/about/spec) was released, which gives us a way to describe the shape of data, assert that functions are receiving the correct thing, and even generate sample data in the right shape for testing functions.
+
+### Getting spec
+
+Let's start by adding `clojure.spec` (and, whilst we're at it, `test.check`) to our dependencies. If you're using `deps.edn`, add the following to your `:deps` map:
+
+```clj
+org.clojure/spec.alpha {:mvn/version "0.2.176"}
+org.clojure/test.check {:mvn/version "0.10.0-alpha3"}
+```
+
+For Leiningen, you'll need this in your `:dependencies` vector:
+
+```clj
+[org.clojure/spec.alpha "0.2.176"]
+[org.clojure/test.check "0.10.0-alpha3"]
+```
+
+If your Clojure environment has a way to hotload dependencies, do so now. Otherwise, you'll need to restart your REPL. :(
+
+If you do restart your REPL, remember to do `(user/refresh-aws-credentials)` before you start playing with AWS again.
+
+### An aggregate spec
+
+Let's create a new namespace for our specs. In a file called `src/models.clj`, add an `ns` definition:
+
+```clj
+(ns models
+  (:require [clojure.spec.alpha :as s]))
+```
+
+Let's think about the aggregate map that our `db/get` and `db/put!` functions use:
+
+```clj
+{:datapoint "merchant1,SLICE_IT"
+ :items 42}
+```
+
+It has two keys:
+- `:datapoint`, which is a string
+- `:items`, which is an integer
+
+In spec, we define maps using the [`s/keys` macro](https://clojure.org/guides/spec#_entity_maps), which specifies the required and optional keys in our map:
+
+```clj
+(s/keys :namespaced/keyword :req [:namespaced/keyword1
+                                  :namespaced/keyword2]
+                            :opt [:namespaced/keyword3])
+```
+
+The interesting thing about keys specs is that they simply name the keys in a map, but say nothing about the values. We need to define specs for the values independently.
+
+So let's do that. We know that datapoints are strings. The simplest way to define a spec is to use a predicate, and Clojure has a perfect one for asking if a value is a string: `string?`. To define a spec, we use `s/def`:
+
+```clj
+(s/def :aggregate/datapoint string?)
+```
+
+Note that spec requires us to use namespaced keywords. We'll use the namespace `aggregate`, since we're describing properties of aggregates.
+
+Now that we've specified what a datapoint should look like, we can use the spec to validate data:
+
+```clj
+(s/valid? :aggregate/datapoint 1) ; => false
+(s/explain :aggregate/datapoint 1) ; prints "1 - failed: string? spec: :aggregate/datapoint"
+(s/explain-data :aggregate/datapoint 1)
+;;=>
+#:clojure.spec.alpha{:problems
+                     [{:path [],
+                       :pred clojure.core/string?,
+                       :val 1,
+                       :via [:aggregate/datapoint],
+                       :in []}],
+                     :spec :aggregate/datapoint,
+                     :value 1}
+```
+
+We'll define a spec for `:items` as well:
+
+```clj
+(s/def :aggregate/items pos-int?)
+```
+
+The `pos-int?` predicate returns true for any positive integral number, not just numbers that can be represented by the Java `Integer` class.
+
+```clj
+(pos-int? 43676312979512) ;=> true
+```
+
+Now that we have specs for both of the elements in our aggregate map, we can create a spec for the map itself.
+
+```clj
+(s/def :aggregate/aggregate (s/keys :req-un [:aggregate/datapoint
+                                             :aggregate/items]))
+```
+
+Time for a test in the REPL:
+
+```clj
+(s/valid? :aggregate/aggregate {:datapoint "foo", :items 42}) ;=> true
+(s/explain-data :aggregate/aggregate {:datapoint "foo"})
+;;=>
+#:clojure.spec.alpha{:problems
+                     ({:path [],
+                       :pred
+                       (clojure.core/fn [%] (clojure.core/contains? % :items)),
+                       :val {:datapoint "foo"},
+                       :via [:aggregate/aggregate],
+                       :in []}),
+                     :spec :aggregate/aggregate,
+                     :value {:datapoint "foo"}}
+```
+
+### Function specs
+
+Now that we have specs for our aggregate, we can use them to document our functions in a way that Clojure can enforce.
+
+Let's switch back to our `db` namespace and spec out the `get` function. First, we'll need to require spec itself and also our `models` namespace:
+
+```clj
+(ns db
+  (:require [amazonica.aws.dynamodbv2 :as dynamo]
+            [clojure.spec.alpha :as s]
+            [models])
+  (:refer-clojure :exclude [get]))
+```
+
+We won't be actually using the `models` namespace, but we need to make sure that it is evaluated before `db` so that the specs we define in `models` will be entered into the global spec registry by the time we use them.
+
+Spec has an `fdef` macro that is used to spec the arguments and return value of a function, as well as any invariants that must hold.
+
+Our `get` function takes a datapoint as its argument and returns an aggregate. Here's how we can say that with spec:
+
+```clj
+(s/fdef get
+        :args (s/cat :datapoint :aggregate/datapoint)
+        :ret :aggregate/aggregate)
+```
+
+The `:args` key to the `fdef` macro provides a spec for arguments. Function arguments are always a list in Clojure, and spec's `cat` is pretty much always used for argument specs. `cat` technically constructs a regular expression that applies to a list (regular expressions are actually a concept in Computer Science that apply to any sequence, not just strings of text), but we'll use it here as a glorified key-value list. `cat` wants a list of pairs of names and value specs. It is conventional to use the same names as your arguments in the `cat` spec.
+
+`:ret` is rather more straightforward. Since functions can only return a single value, `:ret` only needs a single spec.
+
+We can test this out by using spec's testing namespace.
+
+```clj
+(require '[clojure.spec.test.alpha :as stest])
+(stest/instrument 'db/get)
+(get 99)
+```
+
+Trying to call `get` with something that isn't a datapoint will throw an exception like this:
+
+```
+1. Unhandled clojure.lang.ExceptionInfo
+   Spec assertion failed.
+
+         Spec: #object[clojure.spec.alpha$regex_spec_impl$reify__2509 0x382cbd60 "clojure.spec.alpha$regex_spec_impl$reify__2509@382cbd60"]
+        Value: (99)
+
+     Problems: 
+
+            val: 99
+             in: [0]
+         failed: string?
+           spec: :aggregate/datapoint
+             at: [:datapoint]
+
+                 alpha.clj:  132  clojure.spec.test.alpha/spec-checking-fn/conform!
+                 alpha.clj:  140  clojure.spec.test.alpha/spec-checking-fn/fn
+               RestFn.java:  408  clojure.lang.RestFn/invoke
+                      REPL:  467  db/eval19168
+```
+
+Unfortunately, `instrument` doesn't result in the function's return value being checked. There are libraries that do that, however, and I recommend Orchestra **NEED LINK**
+
+Now that we know how to spec, we can add a spec to `put!` as well. `put!` takes an aggregate and returns, well, whatever `dynamo/put-item` does. We don't really care, so we can use the `any?` predicate, which returns true for any argument it's given. However, that might be confusing to the reader, so we can add a helper to spec to our `models` namespace that communicates our intent better:
+
+```clj
+(s/def :return/unit any?)
+```
+
+Now, back in `db`, we can spec `put!`:
+
+```clj
+(s/fdef put!
+        :args (s/cat :aggregate :aggregate/aggregate)
+        :ret :return/unit)
+```
+
+### Generating data from specs
+
+One of spec's killer features is its integration with `test.check`, a Clojure port of Quickcheck, Haskell's amazing generative testing library.
+
+But generative testing is for more than testing. It can level up your REPL game as well!
+
+When you define a spec, it actually comes with a generator. Let's see what the default generators give us for the specs we've defined so far:
+
+```clj
+(sgen/generate (s/gen :aggregate/datapoint)) ;=> FCV4h
+(sgen/generate (s/gen :aggregate/items))     ;=> 1352045
+(sgen/generate (s/gen :aggregate/aggregate)) ;=> {:datapoint "2RE6m66xM7Nr2U9L", :items 6}
+```
+
+What's going on here? Well, the `sgen/generate` function takes a generator as its argument and returns a single generated value. The `s/gen` function takes a spec as an argument and returns a generator. Put them together and you get such magic!
+
+
+## What's next?
+
+Now we have a table, and a few pieces of test data in it. Let's move on to figuring out how to let our clients put lots of data into it!
