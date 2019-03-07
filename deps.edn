@@ -3,4 +3,20 @@
         org.clojure/spec.alpha {:mvn/version "0.2.176"}
         org.clojure/test.check {:mvn/version "0.10.0-alpha3"}
         amazonica {:mvn/version "0.3.139"}
-        cheshire {:mvn/version "5.8.1"}}}
+        cheshire {:mvn/version "5.8.1"}
+        uswitch/lambada {:mvn/version "0.1.2"}}
+ :aliases {:aot {:extra-paths ["classes"]
+                 :main-opts ["-e" "(compile,'lambda)"]}
+           :pack {:override-deps {amazonica {:mvn/version "0.3.139"
+                                             :exclusions [com.amazonaws/aws-java-sdk
+                                                          com.amazonaws/amazon-kinesis-client
+                                                          com.amazonaws/dynamodb-streams-kinesis-adapter]}}
+                  :extra-deps {com.amazonaws/aws-java-sdk-dynamodb {:mvn/version "1.11.475"}
+                               pack/pack.alpha {:git/url "https://github.com/juxt/pack.alpha.git"
+                                                :sha "81b9e47d992b17aa3e3af1a47aed1f0287ebe9b8"}}
+                  :main-opts ["-m"]}
+           :uberjar {:override-deps {amazonica {:mvn/version "0.3.139"
+                                                :exclusions [com.amazonaws/aws-java-sdk
+                                                             com.amazonaws/amazon-kinesis-client
+                                                             com.amazonaws/dynamodb-streams-kinesis-adapter]}}
+                     :extra-deps {com.amazonaws/aws-java-sdk-dynamodb {:mvn/version "1.11.475"}}}}}
