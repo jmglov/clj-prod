@@ -247,11 +247,48 @@ Luckily, lambdas write all of their output directly to Cloudwatch Logs.
 (require '[amazonica.aws.logs :as logs])
 
 (logs/describe-log-streams :log-group-name "/aws/lambda/clj-prod-YOURNAME-events")
-;;=> {:log-streams [{:first-event-timestamp 1551999807068, :stored-bytes 0, :last-event-timestamp 1551999807068, :last-ingestion-time 1551999840627, :arn "arn:aws:logs:eu-west-1:AWSACCOUNT:log-group:/aws/lambda/clj-prod-jmglov-events:log-stream:2019/03/07/[$LATEST]5e2ee4756b7c43f4ba8559f6310cec57", :log-stream-name "2019/03/07/[$LATEST]5e2ee4756b7c43f4ba8559f6310cec57", :upload-sequence-token "49592735214926477653224958681524262503020950481350498738", :creation-time 1551999803177}]}
+;;=> {:log-streams [{:first-event-timestamp 1551999807068, :stored-bytes 0, :last-event-timestamp 1551999807068, :last-ingestion-time 1551999840627, :arn "arn:aws:logs:eu-west-1:AWSACCOUNT:log-group:/aws/lambda/clj-prod-YOURNAME-events:log-stream:2019/03/07/[$LATEST]5e2ee4756b7c43f4ba8559f6310cec57", :log-stream-name "2019/03/07/[$LATEST]5e2ee4756b7c43f4ba8559f6310cec57", :upload-sequence-token "49592735214926477653224958681524262503020950481350498738", :creation-time 1551999803177}]}
+```
 
-(->> (logs/get-log-events :log-group-name "/aws/lambda/clj-prod-jmglov-events"
-                          :log-stream-name "2019/03/07/[$LATEST]5e2ee4756b7c43f4ba8559f6310cec57")
-     :events
-     (map :message))
+Let's write a utility function that returns all the log events from the log stream that's been most recently written to:
+
+```clj
+(defn get-latest-log-events [log-group-name]
+  (let [get-log-events (fn [log-stream-name]
+                         (->> (logs/get-log-events :log-group-name log-group-name
+                                                   :log-stream-name log-stream-name)
+                              :events
+                              (map :messages)))]
+    (->> (logs/describe-log-streams :log-group-name log-group-name)
+         :log-streams
+         (sort-by :last-event-timestamp)
+         last
+         get-log-events)))
+```
+
+Now we can use this function to see what's going on with our lambda:
+
+```clj
+(get-latest-log-events "/aws/lambda/clj-prod-YOURNAME-events")
 ;;=> ("START RequestId: 8fe3a45a-1f30-4104-8ab3-baa80d14d40f Version: $LATEST\n" "{Records [{body Hello from SQS!, md5OfBody 7b270e59b47ff90a553787216d55d91d, eventSourceARN arn:aws:sqs:eu-west-1:123456789012:MyQueue, eventSource aws:sqs, awsRegion eu-west-1, attributes {ApproximateReceiveCount 1, SentTimestamp 1523232000000, SenderId 123456789012, ApproximateFirstReceiveTimestamp 1523232000001}, messageId 19dd0b57-b21e-4ac1-bd88-01bbb068cb78, receiptHandle MessageReceiptHandle, messageAttributes {}}]}\n" "END RequestId: 8fe3a45a-1f30-4104-8ab3-baa80d14d40f\n" "REPORT RequestId: 8fe3a45a-1f30-4104-8ab3-baa80d14d40f\tDuration: 1166.87 ms\tBilled Duration: 1200 ms \tMemory Size: 256 MB\tMax Memory Used: 138 MB\t\n")
+```
+
+## Hooking it up to SQS
+
+Create an events queue as per [lesson 02](lesson-02.md#creating-a-queue) if it doesn't already exist.
+
+In order to have your lambda automatically invoked by SQS when new messages arrive, you'll need to create an event source mapping between your queue and your lambda:
+
+```clj
+(lambda/create-event-source-mapping :event-source-arn "arn:aws:sqs:eu-west-1:AWSACCOUNT:clj-prod-YOURNAME-events"
+                                    :function-name "clj-prod-YOURNAME-events")
+```
+
+You can now test this by [following the steps from lesson 02](lesson-02.md#writing-to-the-queue) to put an event on the queue.
+
+Re-fetching the logs should show a lambda invocation that handles this event:
+
+```clj
+(get-latest-log-events "/aws/lambda/clj-prod-YOURNAME-events")
+;;=> ***
 ```

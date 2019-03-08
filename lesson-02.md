@@ -32,7 +32,7 @@ Unsurprisingly, there's a function called `create-queue`, which needs a queue na
 
 ```clj
 (sqs/create-queue :queue-name "clj-prod-YOURNAME-events")
-;;=> {:queue-url "https://sqs.eu-west-1.amazonaws.com/868333067593/clj-prod-jmglov-events"}
+;;=> {:queue-url "https://sqs.eu-west-1.amazonaws.com/AWSACCOUNT/clj-prod-YOURNAME-events"}
 ```
 
 The function returns a map containing the URL of the queue, which we'll need to use the queue in our subsequent work. Let's go ahead and bind it for convenience:
