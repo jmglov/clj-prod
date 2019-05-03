@@ -1,5 +1,6 @@
 (ns user
   (:require [amazonica.core :as amazonica]
+            [amazonica.aws.logs :as logs]
             [clojure.java.io :as io])
   (:import (java.io ByteArrayOutputStream)
            (java.nio ByteBuffer)))
