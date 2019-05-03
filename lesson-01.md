@@ -449,7 +449,7 @@ Trying to call `get` with something that isn't a datapoint will throw an excepti
                       REPL:  467  db/eval19168
 ```
 
-Unfortunately, `instrument` doesn't result in the function's return value being checked. There are libraries that do that, however, and I recommend Orchestra **NEED LINK**
+Unfortunately, `instrument` doesn't result in the function's return value being checked. There are libraries that do that, however, and I recommend [Orchestra](https://github.com/jeaye/orchestra)
 
 Now that we know how to spec, we can add a spec to `put!` as well. `put!` takes an aggregate and returns, well, whatever `dynamo/put-item` does. We don't really care, so we can use the `any?` predicate, which returns true for any argument it's given. However, that might be confusing to the reader, so we can add a helper to spec to our `models` namespace that communicates our intent better:
 
@@ -474,6 +474,7 @@ But generative testing is for more than testing. It can level up your REPL game 
 When you define a spec, it actually comes with a generator. Let's see what the default generators give us for the specs we've defined so far:
 
 ```clj
+(require '[clojure.spec.gen.alpha :as sgen])
 (sgen/generate (s/gen :aggregate/datapoint)) ;=> FCV4h
 (sgen/generate (s/gen :aggregate/items))     ;=> 1352045
 (sgen/generate (s/gen :aggregate/aggregate)) ;=> {:datapoint "2RE6m66xM7Nr2U9L", :items 6}
